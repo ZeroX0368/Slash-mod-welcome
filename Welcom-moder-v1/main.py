@@ -483,6 +483,119 @@ async def welcome_format(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+# Role Info Command with Pagination
+@bot.tree.command(name="roles", description="Display server roles with pagination")
+async def role_info(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.manage_roles:
+        await interaction.response.send_message("❌ You don't have permission to view role information!", ephemeral=True)
+        return
+    
+    roles = [role for role in interaction.guild.roles if role != interaction.guild.default_role]
+    roles.sort(key=lambda r: r.position, reverse=True)
+    
+    if not roles:
+        await interaction.response.send_message("❌ No roles found in this server!", ephemeral=True)
+        return
+    
+    # Pagination setup
+    roles_per_page = 10
+    total_pages = (len(roles) + roles_per_page - 1) // roles_per_page
+    current_page = 0
+    
+    def create_embed(page):
+        start_idx = page * roles_per_page
+        end_idx = min(start_idx + roles_per_page, len(roles))
+        page_roles = roles[start_idx:end_idx]
+        
+        embed = discord.Embed(
+            title=f"📋 Server Roles ({len(roles)} total)",
+            color=0x0099ff,
+            timestamp=datetime.now()
+        )
+        
+        role_list = []
+        for role in page_roles:
+            role_list.append(f"{role.mention} `({role.id})`")
+        
+        embed.description = "\n".join(role_list)
+        embed.set_footer(text=f"Page {page + 1}/{total_pages} • {interaction.guild.name}")
+        
+        return embed
+    
+    def create_view(page):
+        view = discord.ui.View(timeout=300)
+        
+        # Previous button
+        prev_button = discord.ui.Button(
+            label="◀️ Previous",
+            style=discord.ButtonStyle.secondary,
+            disabled=(page == 0)
+        )
+        
+        async def prev_callback(button_interaction):
+            nonlocal current_page
+            current_page = max(0, current_page - 1)
+            embed = create_embed(current_page)
+            view = create_view(current_page)
+            await button_interaction.response.edit_message(embed=embed, view=view)
+        
+        prev_button.callback = prev_callback
+        view.add_item(prev_button)
+        
+        # Page indicator
+        page_button = discord.ui.Button(
+            label=f"{page + 1}/{total_pages}",
+            style=discord.ButtonStyle.primary,
+            disabled=True
+        )
+        view.add_item(page_button)
+        
+        # Next button
+        next_button = discord.ui.Button(
+            label="Next ▶️",
+            style=discord.ButtonStyle.secondary,
+            disabled=(page >= total_pages - 1)
+        )
+        
+        async def next_callback(button_interaction):
+            nonlocal current_page
+            current_page = min(total_pages - 1, current_page + 1)
+            embed = create_embed(current_page)
+            view = create_view(current_page)
+            await button_interaction.response.edit_message(embed=embed, view=view)
+        
+        next_button.callback = next_callback
+        view.add_item(next_button)
+        
+        # Refresh button
+        refresh_button = discord.ui.Button(
+            label="🔄 Refresh",
+            style=discord.ButtonStyle.success
+        )
+        
+        async def refresh_callback(button_interaction):
+            # Refresh the roles list
+            updated_roles = [role for role in button_interaction.guild.roles if role != button_interaction.guild.default_role]
+            updated_roles.sort(key=lambda r: r.position, reverse=True)
+            nonlocal roles, total_pages, current_page
+            roles = updated_roles
+            total_pages = (len(roles) + roles_per_page - 1) // roles_per_page
+            current_page = min(current_page, total_pages - 1) if total_pages > 0 else 0
+            
+            embed = create_embed(current_page)
+            view = create_view(current_page)
+            await button_interaction.response.edit_message(embed=embed, view=view)
+        
+        refresh_button.callback = refresh_callback
+        view.add_item(refresh_button)
+        
+        return view
+    
+    embed = create_embed(current_page)
+    view = create_view(current_page)
+    
+    await interaction.response.send_message(embed=embed, view=view)
+
 # Welcome event handler
 @bot.event
 async def on_member_join(member):
